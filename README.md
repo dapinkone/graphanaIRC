@@ -16,3 +16,8 @@ Graphana stuff
 - [ ] JSON parsing of alerts
 - [ ] Rate Limiting: Determine if the alert has been reported within configurable time window. If not, report to IRC.
 - [ ] Rate Limiting duration configurable per alert.
+
+Other
+- [ ] connect to postgresQL to store IRC bot settings
+- [ ] take startup configs (IRC server, username, password) from a yaml file
+- [ ] Dockerize
