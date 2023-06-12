@@ -7,7 +7,7 @@ import (
 	//	"log"
 	//	"os"
 	//	"os/signal"
-	//	"strings"
+	"strings"
 	//	"syscall"
 	"time"
 
@@ -31,6 +31,13 @@ type Bot struct {
 	//	alerts    map[string]Alert
 	//	db        *sql.DB
 	startTime time.Time // needed for alert timedeltas.
+}
+
+type Alert struct {
+	name        string
+	rate_limit  int // stored in seconds
+	blacklisted bool
+	muted_until int // unix timestamp seems simplest for this.
 }
 
 func NewBot(config *Config) (*Bot, error) {
@@ -84,6 +91,42 @@ func main() {
 		fmt.Printf("Err %s", err)
 		return
 	}
+	alerts := make([]Alert, 0)
+	alerts = append(alerts,
+		Alert{
+			name:        "testAlert",
+			rate_limit:  60,
+			blacklisted: false,
+			muted_until: 0,
+		},
+	)
+
+	// register callbacks
+	b.conn.AddCallback("PRIVMSG", func(event *irc.Event) { // first class functions?
+		go func(event *irc.Event) {
+			if event.Nick == "DaPinkOne" { // TODO: auth function.
+				fmt.Println("Command recieved from %s on channel %s for: %s",
+					event.Nick,
+					event.Arguments[0],
+					event.Arguments[1],
+				)
+				fields := strings.Fields(event.Arguments[1])
+				b.conn.Privmsg(event.Nick, "Acknowledged "+fields[0])
+				switch fields[0] {
+				case "quit":
+					b.conn.Quit()
+				case "list":
+					{
+						lst := make([]string, len(alerts))
+						for i, _ := range alerts { // map() ?
+							lst[i] = alerts[i].name
+						}
+						b.conn.Privmsg(event.Nick, strings.Join(lst, " "))
+					}
+				}
+			}
+		}(event)
+	})
 	fmt.Printf("Connected to IRCServer: %s\n", config.Server)
 	fmt.Printf("Connected to IRC w/ Username: %s\n", config.Username)
 	b.conn.Loop()
