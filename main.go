@@ -28,7 +28,7 @@ type Config struct {
 type Bot struct {
 	conn   *irc.Connection
 	config *Config
-	//	alerts    map[string]Alert
+	//alerts    map[string]Alert
 	//	db        *sql.DB
 	startTime time.Time // needed for alert timedeltas.
 }
@@ -104,24 +104,43 @@ func main() {
 	// register callbacks
 	b.conn.AddCallback("PRIVMSG", func(event *irc.Event) { // first class functions?
 		go func(event *irc.Event) {
-			if event.Nick == "DaPinkOne" { // TODO: auth function.
+
+			if event.Nick == "DaPinkOne" {
+				// TODO: auth function.
+				// if user is auth'd:
 				fmt.Println("Command recieved from %s on channel %s for: %s",
 					event.Nick,
 					event.Arguments[0],
 					event.Arguments[1],
 				)
 				fields := strings.Fields(event.Arguments[1])
-				b.conn.Privmsg(event.Nick, "Acknowledged "+fields[0])
-				switch fields[0] {
+				b.conn.Privmsg(event.Nick, "Acknowledged: "+fields[0])
+				switch fields[0] { // switch on command.
 				case "quit":
 					b.conn.Quit()
-				case "list":
+				case "join":
+					if len(fields) >= 1 {
+						b.conn.Join(fields[1])
+					}
+				case "part":
+					if len(fields) >= 1 { // error message?
+						b.conn.Part(fields[1])
+					}
+				case "alerts": // list alerts
 					{
-						lst := make([]string, len(alerts))
-						for i, _ := range alerts { // map() ?
-							lst[i] = alerts[i].name
+						switch fields[1] { // list commands
+						case "ignore": // alerts ignore xyz
+							// add given alert to blacklist
+							// if given a time, set muted_until instead
+						case "list": // alerts list
+							lst := make([]string, len(alerts))
+							for i, _ := range alerts { // map() ?
+								lst[i] = alerts[i].name
+							}
+							b.conn.Privmsg(event.Nick, strings.Join(lst, " "))
+						default:
+							// default case? reply w/ error message?
 						}
-						b.conn.Privmsg(event.Nick, strings.Join(lst, " "))
 					}
 				}
 			}

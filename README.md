@@ -4,13 +4,19 @@ Planned Features:
 
 Bot stuff
 - [X] connect to IRC (SASL preferred)
-- [ ] IRC command to set alert rate limit.
-
-- [ ] IRC command to add alert to an ignore blacklist
-- [ ] IRC command to remove alert from blacklist.
+- IRC commands:
+  - [ ] set alert rate limit.
+  - [ ] add alert to an ignore blacklist
+  - [ ] remove alert from blacklist.
+  - [ ] list alerts in blacklist
+  
+  - [X] join / part channel
+  - [X] quit command
 
 - [ ] IRC command to temporarily mute bot for a period of time.
 - [ ] possible format request: 10h10m30s etc
+- [ ] Authentication based on who has +o, +a, etc
+- [ ] Autojoin channels
 
 Graphana stuff
 - [ ] Host simple web endpoint to receive JSON post requests ( to receive an alert from graphana )
