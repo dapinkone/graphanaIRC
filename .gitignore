@@ -19,3 +19,6 @@
 
 # Go workspace file
 go.work
+
+# don't want to commit secrets.
+config.yaml

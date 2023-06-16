@@ -6,21 +6,20 @@ Bot stuff
 - [X] connect to IRC (SASL preferred)
 - IRC commands:
   - [ ] set alert rate limit.
-  - [ ] add alert to an ignore blacklist
-  - [ ] remove alert from blacklist.
-  - [ ] list alerts in blacklist
+  - [ ] mute alert [duration]
+  - [ ] list alerts which are muted
   
   - [X] join / part channel
   - [X] quit command
 
 - [ ] IRC command to temporarily mute bot for a period of time.
-- [ ] possible format request: 10h10m30s etc
+- [X] possible format request: 10h10m30s etc (supported up to hours. Days+ not supported)
 - [ ] Authentication based on who has +o, +a, etc
-- [ ] Autojoin channels
+- [X] Autojoin channels
 
 Graphana stuff
-- [ ] Host simple web endpoint to receive JSON post requests ( to receive an alert from graphana )
-- [ ] JSON parsing of alerts
+- [X] Host simple web endpoint to receive JSON post requests ( to receive an alert from graphana )
+- [X] JSON parsing of alerts
 - [ ] Rate Limiting: Determine if the alert has been reported within configurable time window. If not, report to IRC.
 - [ ] Rate Limiting duration configurable per alert.
 
@@ -34,5 +33,6 @@ Notes:
 Alerts should have:
 - [ ] alert_name
 - [ ] rate_limit ( eg, report only every 15m )
-- [ ] Boolean: ignored_flag ( this alert is blacklisted, ignored indefinitely )
-- [ ] muted_until: timestamp ( this alert is temp-ignored until [timestamp] )
+- [ ] muted_until: timestamp, stored as unix timestamp.
+  This alert is ignored until [timestamp], and defaults to maxint or "forever"
+  

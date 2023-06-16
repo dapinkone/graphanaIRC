@@ -4,21 +4,24 @@ import (
 	//	"database/sql"
 	"fmt"
 	"io/ioutil"
-	//	"log"
+	"log"
+	"math"
 	//	"os"
 	//	"os/signal"
 	"strings"
 	//	"syscall"
-	"time"
-
+	"encoding/json"
 	"github.com/go-yaml/yaml"
 	"github.com/thoj/go-ircevent"
+	"net/http"
+	"time"
 )
 
 type Config struct {
 	Server   string `yaml:"server"`
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
+	Autojoin string `yaml:"autojoin"`
 
 	DatabaseURL string `yaml:"DatabaseURL"`
 	DBusername  string `yaml:"DBusername"`
@@ -28,7 +31,7 @@ type Config struct {
 type Bot struct {
 	conn   *irc.Connection
 	config *Config
-	//alerts    map[string]Alert
+	alerts map[string]Alert
 	//	db        *sql.DB
 	startTime time.Time // needed for alert timedeltas.
 }
@@ -36,24 +39,25 @@ type Bot struct {
 type Alert struct {
 	name        string
 	rate_limit  int // stored in seconds
-	blacklisted bool
 	muted_until int // unix timestamp seems simplest for this.
 }
 
+////////////////////////////////////////
+// IRC stuff
 func NewBot(config *Config) (*Bot, error) {
 	// build a new IRC bot object(from go-ircevent), given a config
 	conn := irc.IRC(config.Username, config.Username)
-	conn.VerboseCallbackHandler = true
-	conn.Debug = true
+	//	conn.VerboseCallbackHandler = true
+	//	conn.Debug = true
 	conn.Password = config.Password
 	conn.SASLLogin = config.Username
 	conn.SASLPassword = config.Password
 	// TODO: add callbacks here with conn.AddCallback()
 
 	bot := &Bot{
-		conn:   conn,
-		config: config, // is this config the right format?
-		//	alerts:    make(map[string]Alert),
+		conn:      conn,
+		config:    config, // is this config the right format?
+		alerts:    make(map[string]Alert),
 		startTime: time.Now(),
 	}
 	return bot, nil
@@ -64,6 +68,151 @@ func (b *Bot) Connect() error {
 	// connect to IRC ( Does library handle auth? )
 	return b.conn.Connect(b.config.Server)
 }
+
+func TimestampToString(timestamp int64) string {
+	// takes a unix timestamp and returns a string representation.
+	return time.Unix(timestamp, 0).Format(time.UnixDate)
+}
+func DeltaStringToTimestamp(deltastr string) (int64, error) {
+	// parses a string of format [__d][__h][__m][__s] into a time delta and
+	// returns the relevant target timestamp, or errors
+	// FIXME: time.ParseDuration does not support days, weeks or years.
+	delta, err := time.ParseDuration(deltastr)
+	if err != nil {
+		return -1, err
+	}
+	target_t := time.Now().Add(delta).Unix()
+	return target_t, nil
+}
+
+func (b *Bot) PrivmsgCallback(event *irc.Event) {
+	if event.Nick != "DaPinkOne" {
+		// TODO: auth function.
+		return
+	}
+	// if user is auth'd:
+	fmt.Printf("Command recieved from %s on channel %s for: %s",
+		event.Nick,
+		event.Arguments[0],
+		event.Arguments[1],
+	)
+	fields := strings.Fields(event.Arguments[1])
+	b.conn.Privmsg(event.Arguments[0], "Acknowledged: "+fields[0])
+	switch fields[0] { // switch on command.
+	case "quit":
+		b.conn.Quit()
+	case "join":
+		if len(fields) >= 1 {
+			b.conn.Join(fields[1])
+		}
+	case "part":
+		if len(fields) >= 1 { // error message?
+			b.conn.Part(fields[1])
+			return
+		}
+		// default to parting current channel, if one isn't given.
+		b.conn.Part(event.Arguments[0])
+	case "alert": // list alerts
+		switch fields[1] { // list commands
+		case "mute":
+			// `alert mute xyz [43d23h8m]` NOTE: does not currently support days.
+			// when told to mute an alert, mute for a period
+			// if period not given, default to max unix timestamp.
+
+			// TODO: should we check here if an alert name is real / valid ?
+			alert_name := fields[2]
+
+			var mute_until int64 // for some reason, math.MaxInt64 isn't 64 bit.
+			var err error
+			mute_until = math.MaxInt64 // default to muting until forever.
+
+			if len(fields) > 3 { // is there a time?
+				mute_until, err = DeltaStringToTimestamp(fields[3])
+				if err != nil {
+					b.conn.Privmsg(event.Arguments[0], "Invalid time format: "+fields[3])
+					return
+				}
+			}
+			b.conn.Privmsg(event.Arguments[0],
+				fmt.Sprintf("Muting alert `%s` until %s",
+					alert_name,
+					TimestampToString(mute_until),
+				),
+			)
+			// TODO: set the mute_until for respective alert.
+		case "unmute":
+			alert_name := fields[2] // remove mute condition.
+			alert = b.alerts[alert_name]
+			if alert != nil {
+				alert.mute_until = 0
+			}
+		case "list": // alerts list
+			lst := make([]string, len(b.alerts))
+			for k, _ := range b.alerts { // map() ?
+				lst = append(lst, k)
+			}
+			b.conn.Privmsg(event.Arguments[0], strings.Join(lst, " "))
+		default:
+			// default case? reply w/ error message?
+		}
+	}
+}
+
+// End of IRC stuff
+///////////////////////////
+
+//////////////////////////
+// web stuff
+
+type HttpAlert struct {
+	Receiver          string            `json:"receiver"`
+	Status            string            `json:"status"`
+	Alerts            []InnerAlert      `json:"alerts"`
+	GroupLabels       map[string]string `json:"groupLabels"`
+	CommonLabels      map[string]string `json:"commonLabels"`
+	CommonAnnotations map[string]string `json:"commonAnnotations"`
+	ExternalURL       string            `json:"externalURL"`
+	Version           string            `json:"version"`
+	GroupKey          string            `json:"groupKey"`
+	TruncatedAlerts   int               `json:"truncatedAlerts"`
+	OrgID             int               `json:"orgId"`
+	Title             string            `json:"title"`
+	State             string            `json:"state"`
+	Message           string            `json:"message"`
+}
+
+type InnerAlert struct {
+	Status       string            `json:"status"`
+	Labels       map[string]string `json:"labels"`
+	Annotations  map[string]string `json:"annotations"`
+	StartsAt     string            `json:"startsAt"`
+	EndsAt       string            `json:"endsAt"`
+	GeneratorURL string            `json:"generatorURL"`
+	Fingerprint  string            `json:"fingerprint"`
+	SilenceURL   string            `json:"silenceURL"`
+	DashboardURL string            `json:"dashboardURL"`
+	PanelURL     string            `json:"panelURL"`
+	Values       interface{}       `json:"values"` // TODO: what type is "Values" ?
+	ValueString  string            `json:"valueString"`
+}
+
+func handleAlert(w http.ResponseWriter, r *http.Request) {
+	// callback for http server to handle alerts recieved via post request,
+	// from grafana. Takes data, and sends necessary information into a channel
+	// for the IRC bot to report.
+	var alert HttpAlert
+	err := json.NewDecoder(r.Body).Decode(&alert) // unmarshal data into struct for use.
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// TODO: send the alert data into a channel for the IRC bot to handle
+	log.Println(alert)
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Alert recieved."))
+}
+
 func main() {
 	// read yaml config file
 
@@ -80,73 +229,39 @@ func main() {
 		return
 	}
 
-	// build new bot.
+	// build new bot
 	b, err := NewBot(&config)
 	if err != nil {
 		fmt.Printf("Err %s", err)
 		return
 	}
-	err = b.Connect()
+	err = b.Connect() // connect to IRC server.
 	if err != nil {
 		fmt.Printf("Err %s", err)
 		return
 	}
-	alerts := make([]Alert, 0)
-	alerts = append(alerts,
-		Alert{
-			name:        "testAlert",
-			rate_limit:  60,
-			blacklisted: false,
-			muted_until: 0,
-		},
-	)
+	// TODO: get necessary alert data from database here.
+	//alerts := make([]Alert, 0)
+	b.alerts["testAlert"] = Alert{
+		name: "testAlert",
+	}
 
-	// register callbacks
+	// register IRC callbacks
 	b.conn.AddCallback("PRIVMSG", func(event *irc.Event) { // first class functions?
-		go func(event *irc.Event) {
-
-			if event.Nick == "DaPinkOne" {
-				// TODO: auth function.
-				// if user is auth'd:
-				fmt.Println("Command recieved from %s on channel %s for: %s",
-					event.Nick,
-					event.Arguments[0],
-					event.Arguments[1],
-				)
-				fields := strings.Fields(event.Arguments[1])
-				b.conn.Privmsg(event.Nick, "Acknowledged: "+fields[0])
-				switch fields[0] { // switch on command.
-				case "quit":
-					b.conn.Quit()
-				case "join":
-					if len(fields) >= 1 {
-						b.conn.Join(fields[1])
-					}
-				case "part":
-					if len(fields) >= 1 { // error message?
-						b.conn.Part(fields[1])
-					}
-				case "alerts": // list alerts
-					{
-						switch fields[1] { // list commands
-						case "ignore": // alerts ignore xyz
-							// add given alert to blacklist
-							// if given a time, set muted_until instead
-						case "list": // alerts list
-							lst := make([]string, len(alerts))
-							for i, _ := range alerts { // map() ?
-								lst[i] = alerts[i].name
-							}
-							b.conn.Privmsg(event.Nick, strings.Join(lst, " "))
-						default:
-							// default case? reply w/ error message?
-						}
-					}
-				}
-			}
-		}(event)
+		go b.PrivmsgCallback(event)
 	})
 	fmt.Printf("Connected to IRCServer: %s\n", config.Server)
 	fmt.Printf("Connected to IRC w/ Username: %s\n", config.Username)
+	b.conn.Join(b.config.Autojoin)
+
+	// register `handleAlert` as a callback with the http server.
+	http.HandleFunc("/alerts", handleAlert)
+	webAddr := "localhost:8080"
+	go func() { // start web server main loop.
+		log.Fatal(http.ListenAndServe(webAddr, nil))
+	}()
+	log.Println("Web Server started on", webAddr)
+
+	// start IRC bot main loop
 	b.conn.Loop()
 }
