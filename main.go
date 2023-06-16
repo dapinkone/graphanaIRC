@@ -26,6 +26,8 @@ type Config struct {
 	DatabaseURL string `yaml:"DatabaseURL"`
 	DBusername  string `yaml:"DBusername"`
 	DBpassword  string `yaml:"DBpassword"`
+
+	WebAddress string `yaml:"webAddress"`
 }
 
 type Bot struct {
@@ -262,8 +264,8 @@ func main() {
 
 	// register `handleAlert` as a callback with the http server.
 	http.HandleFunc("/alerts", handleAlert)
-	webAddr := "localhost:8080"
-	go func() { // start web server main loop.
+	webAddr := b.config.WebAddress
+	go func() { // start web server loop.
 		log.Fatal(http.ListenAndServe(webAddr, nil))
 	}()
 	log.Println("Web Server started on", webAddr)
