@@ -37,9 +37,9 @@ type Bot struct {
 }
 
 type Alert struct {
-	name        string
-	rate_limit  int // stored in seconds
-	muted_until int // unix timestamp seems simplest for this.
+	name       string
+	rate_limit int // stored in seconds
+	mute_until int // unix timestamp seems simplest for this.
 }
 
 ////////////////////////////////////////
@@ -142,8 +142,9 @@ func (b *Bot) PrivmsgCallback(event *irc.Event) {
 			// TODO: set the mute_until for respective alert.
 		case "unmute":
 			alert_name := fields[2] // remove mute condition.
-			alert = b.alerts[alert_name]
-			if alert != nil {
+			alert := b.alerts[alert_name]
+			zero_alert := Alert{}
+			if alert != zero_alert {
 				alert.mute_until = 0
 			}
 		case "list": // alerts list
@@ -200,15 +201,20 @@ func handleAlert(w http.ResponseWriter, r *http.Request) {
 	// callback for http server to handle alerts recieved via post request,
 	// from grafana. Takes data, and sends necessary information into a channel
 	// for the IRC bot to report.
-	var alert HttpAlert
-	err := json.NewDecoder(r.Body).Decode(&alert) // unmarshal data into struct for use.
+	var httpAlert HttpAlert
+	err := json.NewDecoder(r.Body).Decode(&httpAlert) // unmarshal data into struct for use.
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	// TODO: send the alert data into a channel for the IRC bot to handle
-	log.Println(alert)
+	for _, innerAlert := range httpAlert.Alerts {
+		name := innerAlert.Labels["alertname"]
+		if innerAlert.Status == "firing" {
+			log.Println("Alert firing: ", name)
+		}
+	}
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Alert recieved."))
 }
