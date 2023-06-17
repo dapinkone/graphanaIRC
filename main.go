@@ -35,12 +35,12 @@ type Config struct {
 type Bot struct {
 	conn   *irc.Connection
 	config *Config
-	alerts map[string]Alert
+	alerts map[string]AlertRecord
 	//	db        *sql.DB
 	startTime time.Time // needed for alert timedeltas.
 }
 
-type Alert struct {
+type AlertRecord struct {
 	Name          string
 	Rate_limit    time.Duration
 	Mute_until    time.Time
@@ -62,7 +62,7 @@ func NewBot(config *Config) (*Bot, error) {
 	bot := &Bot{
 		conn:      conn,
 		config:    config, // is this config the right format?
-		alerts:    make(map[string]Alert),
+		alerts:    make(map[string]AlertRecord),
 		startTime: time.Now(),
 	}
 	return bot, nil
@@ -128,7 +128,7 @@ func (b *Bot) PrivmsgCallback(event *irc.Event) {
 			)
 
 			val := b.alerts[alert_name]
-			b.alerts[alert_name] = Alert{
+			b.alerts[alert_name] = AlertRecord{
 				Name:       alert_name,
 				Mute_until: mute_until,
 				Last_seen:  val.Last_seen,
@@ -153,7 +153,7 @@ func (b *Bot) PrivmsgCallback(event *irc.Event) {
 			log.Printf("%s limited to %d\n", alert_name, rate_limit.String())
 
 			val := b.alerts[alert_name]
-			b.alerts[alert_name] = Alert{
+			b.alerts[alert_name] = AlertRecord{
 				Name:          alert_name,
 				Mute_until:    val.Mute_until,
 				Last_seen:     val.Last_seen,
@@ -163,7 +163,7 @@ func (b *Bot) PrivmsgCallback(event *irc.Event) {
 		case "unmute": // unmute by setting mute_until to current time.
 			alert_name := fields[2]
 			val := b.alerts[alert_name]
-			b.alerts[alert_name] = Alert{
+			b.alerts[alert_name] = AlertRecord{
 				Name:       alert_name,
 				Mute_until: time.Now(),
 				Last_seen:  val.Last_seen,
@@ -331,7 +331,7 @@ func main() {
 				last_reported = now
 				b.conn.Privmsg(b.config.AlertsChannel, alertName+" is "+innerAlert.Status)
 			}
-			b.alerts[alertName] = Alert{
+			b.alerts[alertName] = AlertRecord{
 				Name:          alertName,
 				Last_seen:     now,
 				Rate_limit:    record.Rate_limit,

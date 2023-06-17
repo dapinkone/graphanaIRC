@@ -7,6 +7,7 @@ Bot stuff
 - IRC commands:
   - [X] `alert rate [alertname] [duration]`	: set a rate limit on an alert
   - [X] `alert mute alertname [duration]` : mute an alert for a certain period of time
+  	 	  [ ] default value for mute duration?
   - [X] `alert unmute alertname` : unmute a currently muted alert (same as `alert mute alertname 0m`)
   - [ ] `alert list` list alerts which are muted
   - [X] `alert info alertname` : report current [mute, last seen, rate limit] record
