@@ -16,12 +16,14 @@ Bot stuff
 - [X] possible format request: 10h10m30s etc (supported up to hours. Days+ not supported)
 - [ ] Authentication based on who has +o, +a, etc
 - [X] Autojoin channels
+- [X] reports firing alerts on channel
 
 Graphana stuff
 - [X] Host simple web endpoint to receive JSON post requests ( to receive an alert from graphana )
 - [X] JSON parsing of alerts
 - [ ] Rate Limiting: Determine if the alert has been reported within configurable time window. If not, report to IRC.
 - [ ] Rate Limiting duration configurable per alert.
+
 
 Other
 - [ ] connect to postgresQL to store IRC bot settings(blacklist)

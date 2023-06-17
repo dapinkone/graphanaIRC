@@ -42,6 +42,7 @@ type Alert struct {
 	name       string
 	rate_limit int // stored in seconds
 	mute_until int // unix timestamp seems simplest for this.
+	last_seen  int // unix timestamp of last time alert fired.
 }
 
 ////////////////////////////////////////
@@ -199,27 +200,34 @@ type InnerAlert struct {
 	ValueString  string            `json:"valueString"`
 }
 
-func handleAlert(w http.ResponseWriter, r *http.Request) {
-	// callback for http server to handle alerts recieved via post request,
-	// from grafana. Takes data, and sends necessary information into a channel
-	// for the IRC bot to report.
-	var httpAlert HttpAlert
-	err := json.NewDecoder(r.Body).Decode(&httpAlert) // unmarshal data into struct for use.
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// TODO: send the alert data into a channel for the IRC bot to handle
-	for _, innerAlert := range httpAlert.Alerts {
-		name := innerAlert.Labels["alertname"]
-		if innerAlert.Status == "firing" {
-			log.Println("Alert firing: ", name)
+func buildAlertHandler(alertsChannel chan<- InnerAlert) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) { // handleAlert()
+		// callback for http server to handle alerts recieved via post request,
+		// from grafana. Takes data, and sends necessary information into a channel
+		// for the IRC bot to report.
+		var httpAlert HttpAlert
+		err := json.NewDecoder(r.Body).Decode(&httpAlert) // unmarshal data into struct for use.
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
+
+		// TODO: send the alert data into a channel for the IRC bot to handle
+		for _, innerAlert := range httpAlert.Alerts {
+			name := innerAlert.Labels["alertname"]
+			if innerAlert.Status == "firing" {
+				log.Println("Alert firing: ", name)
+				// TODO: build structure, and feed it to a channel for the IRC bot.
+				alertsChannel <- innerAlert
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Alert recieved."))
 	}
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Alert recieved."))
 }
+
+// End web stuff
+/////////////////////////////////
 
 func main() {
 	// read yaml config file
@@ -254,16 +262,24 @@ func main() {
 		name: "testAlert",
 	}
 
+	alertsChannel := make(chan InnerAlert)
 	// register IRC callbacks
-	b.conn.AddCallback("PRIVMSG", func(event *irc.Event) { // first class functions?
+	b.conn.AddCallback("PRIVMSG", func(event *irc.Event) {
 		go b.PrivmsgCallback(event)
+	})
+
+	b.conn.AddCallback("*", func(event *irc.Event) { // check for/handle alerts channel works
+		go func() { // TODO: only need one of these to exist?
+			innerAlert := <-alertsChannel
+			b.conn.Privmsg(b.config.Autojoin, innerAlert.Labels["alertname"]+" is status : "+innerAlert.Status)
+		}()
 	})
 	fmt.Printf("Connected to IRCServer: %s\n", config.Server)
 	fmt.Printf("Connected to IRC w/ Username: %s\n", config.Username)
 	b.conn.Join(b.config.Autojoin)
 
 	// register `handleAlert` as a callback with the http server.
-	http.HandleFunc("/alerts", handleAlert)
+	http.HandleFunc("/alerts", buildAlertHandler(alertsChannel))
 	webAddr := b.config.WebAddress
 	go func() { // start web server loop.
 		log.Fatal(http.ListenAndServe(webAddr, nil))
