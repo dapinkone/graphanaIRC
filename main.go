@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"math"
+	//	"math"
 	//	"os"
 	//	"os/signal"
 	"strings"
@@ -14,6 +14,7 @@ import (
 	"github.com/go-yaml/yaml"
 	"github.com/thoj/go-ircevent"
 	"net/http"
+	//	"strconv"
 	"time"
 )
 
@@ -40,10 +41,11 @@ type Bot struct {
 }
 
 type Alert struct {
-	Name       string
-	Rate_limit int   // stored in seconds
-	Mute_until int64 // unix timestamp seems simplest for this.
-	Last_seen  int64 // unix timestamp of last time alert fired.
+	Name          string
+	Rate_limit    time.Duration
+	Mute_until    time.Time
+	Last_seen     time.Time
+	Last_reported time.Time
 }
 
 ////////////////////////////////////////
@@ -56,7 +58,6 @@ func NewBot(config *Config) (*Bot, error) {
 	conn.Password = config.Password
 	conn.SASLLogin = config.Username
 	conn.SASLPassword = config.Password
-	// TODO: add callbacks here with conn.AddCallback()
 
 	bot := &Bot{
 		conn:      conn,
@@ -69,24 +70,7 @@ func NewBot(config *Config) (*Bot, error) {
 
 // NOTE: func [class] functionName([arguments]) ([returns])
 func (b *Bot) Connect() error {
-	// connect to IRC ( Does library handle auth? )
 	return b.conn.Connect(b.config.Server)
-}
-
-func TimestampToString(timestamp int64) string {
-	// takes a unix timestamp and returns a string representation.
-	return time.Unix(timestamp, 0).Format(time.UnixDate)
-}
-func DeltaStringToTimestamp(deltastr string) (int64, error) {
-	// parses a string of format [__d][__h][__m][__s] into a time delta and
-	// returns the relevant target timestamp, or errors
-	// FIXME: time.ParseDuration does not support days, weeks or years.
-	delta, err := time.ParseDuration(deltastr)
-	if err != nil {
-		return -1, err
-	}
-	target_t := time.Now().Add(delta).Unix()
-	return target_t, nil
 }
 
 func (b *Bot) PrivmsgCallback(event *irc.Event) {
@@ -123,27 +107,26 @@ func (b *Bot) PrivmsgCallback(event *irc.Event) {
 			// when told to mute an alert, mute for a period
 			// if period not given, default to max unix timestamp.
 
-			// TODO: should we check here if an alert name is real / valid ?
 			alert_name := fields[2]
 
-			var mute_until int64 // for some reason, math.MaxInt64 isn't 64 bit.
+			var mute_delta time.Duration // TODO: default value for mute duration?
 			var err error
-			mute_until = math.MaxInt64 // default to muting until forever.
 
-			if len(fields) > 3 { // is there a time?
-				mute_until, err = DeltaStringToTimestamp(fields[3])
+			if len(fields) > 3 {
+				mute_delta, err = time.ParseDuration(fields[3])
 				if err != nil {
 					b.conn.Privmsg(event.Arguments[0], "Invalid time format: "+fields[3])
 					return
 				}
 			}
+			mute_until := time.Now().Add(mute_delta)
 			b.conn.Privmsg(event.Arguments[0],
 				fmt.Sprintf("Muting alert `%s` until %s",
 					alert_name,
-					TimestampToString(mute_until),
+					mute_until.String(),
 				),
 			)
-			// TODO: set the mute_until for respective alert.
+
 			val := b.alerts[alert_name]
 			b.alerts[alert_name] = Alert{
 				Name:       alert_name,
@@ -151,12 +134,41 @@ func (b *Bot) PrivmsgCallback(event *irc.Event) {
 				Last_seen:  val.Last_seen,
 				Rate_limit: val.Rate_limit,
 			}
-		case "unmute":
-			alert_name := fields[2] // remove mute condition.
-			alert, ok := b.alerts[alert_name]
-			if ok {
-				alert.Mute_until = 0
-			} // otherwise, wasn't muted. we don't know about it.
+		case "rate": // set alert rate limit
+			alert_name := fields[2]
+
+			var rate_limit time.Duration
+			var err error
+			if len(fields) > 3 {
+				rate_limit, err = time.ParseDuration(fields[3])
+				if err != nil {
+					b.conn.Privmsg(event.Arguments[0], "Invalid time format: "+fields[3])
+					return
+				}
+			} else {
+				b.conn.Privmsg(event.Arguments[0], "Time delta required for rate limit. ")
+				return
+			}
+
+			log.Printf("%s limited to %d\n", alert_name, rate_limit.String())
+
+			val := b.alerts[alert_name]
+			b.alerts[alert_name] = Alert{
+				Name:          alert_name,
+				Mute_until:    val.Mute_until,
+				Last_seen:     val.Last_seen,
+				Rate_limit:    rate_limit,
+				Last_reported: val.Last_reported,
+			}
+		case "unmute": // unmute by setting mute_until to current time.
+			alert_name := fields[2]
+			val := b.alerts[alert_name]
+			b.alerts[alert_name] = Alert{
+				Name:       alert_name,
+				Mute_until: time.Now(),
+				Last_seen:  val.Last_seen,
+				Rate_limit: val.Rate_limit,
+			}
 		case "list": // alerts list
 			lst := make([]string, len(b.alerts))
 			for k, _ := range b.alerts { // map() ?
@@ -168,14 +180,15 @@ func (b *Bot) PrivmsgCallback(event *irc.Event) {
 			record, ok := b.alerts[alert_name]
 			var msg string
 			if ok {
-				msg = fmt.Sprintf("Alert `%s` : mute until %s : last seen %s : rate limit %d",
+				msg = fmt.Sprintf("`%s` : mute %s : seen %s : rate %s : reported %s",
 					alert_name,
-					TimestampToString(record.Mute_until),
-					TimestampToString(record.Last_seen),
-					record.Rate_limit,
+					record.Mute_until.String(),
+					record.Last_seen.String(),
+					record.Rate_limit.String(),
+					record.Last_reported.String(),
 				)
 			} else {
-				msg = fmt.Sprintf("Alert `%s` has no record.")
+				msg = fmt.Sprintf("Alert `%s` has no record.", alert_name)
 			}
 			b.conn.Privmsg(event.Arguments[0], msg)
 
@@ -295,28 +308,37 @@ func main() {
 		// monitor will handle rate limiting, muting alerts, etc.
 		for {
 			innerAlert := <-alertsChannel
-			var now int64 = time.Now().Unix()
+			now := time.Now()
 
 			alertName := innerAlert.Labels["alertname"]
-			record, ok := b.alerts[alertName]
+			record := b.alerts[alertName]
 			log.Println(record)
 
 			// if the innerAlert is not muted, and is not within the rate limit, report.
-			log.Println("Alert recieved @", now, " muted until ", record.Mute_until-now)
 			report := true
-			if (record.Mute_until >= now) || (record.Last_seen+int64(record.Rate_limit) >= now) {
+			if now.Before(record.Mute_until) || now.Before(record.Last_reported.Add(record.Rate_limit)) {
+				// TODO: need not only last_seen, but also Last_Reported for use  in rate limit.
+				log.Println("Alert muted/limited, ", alertName)
 				report = false
 			}
 
-			if ok { // initialize the record if necessary
-				record.Last_seen = now
-			} else {
-				b.alerts[alertName] = Alert{Name: alertName, Last_seen: now}
-			}
-
+			// if ok { // initialize the record if necessary
+			// 	record.Last_seen = now
+			// } else {
+			//			}
+			last_reported := record.Last_reported
 			if report {
+				last_reported = now
 				b.conn.Privmsg(b.config.AlertsChannel, alertName+" is "+innerAlert.Status)
 			}
+			b.alerts[alertName] = Alert{
+				Name:          alertName,
+				Last_seen:     now,
+				Rate_limit:    record.Rate_limit,
+				Mute_until:    record.Mute_until,
+				Last_reported: last_reported,
+			}
+
 		}
 	}()
 
