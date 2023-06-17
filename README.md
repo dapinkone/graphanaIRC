@@ -5,12 +5,13 @@ Planned Features:
 Bot stuff
 - [X] connect to IRC (SASL preferred)
 - IRC commands:
-  - [ ] set alert rate limit.
-  - [X] mute alert [duration]
-  - [X] unmute alert 
-  - [ ] list alerts which are muted
+  - [ ] `alert limit [alertname]`	: set a rate limit on an alert
+  - [X] `alert mute alertname [duration]` : mute an alert for a certain period of time
+  - [X] `alert unmute alertname` : unmute a currently muted alert (same as `alert mute alertname 0m`)
+  - [ ] `alert list` list alerts which are muted
+  - [X] `alert info alertname` : report current [mute, last seen, rate limit] record
   
-  - [X] join / part channel
+  - [X] join / part channel, defaults to current channel if none given
   - [X] quit command
 
 - [ ] IRC command to temporarily mute bot for a period of time.
@@ -34,8 +35,8 @@ Other
 
 Notes:
 Alerts should have:
-- [ ] alert_name
-- [ ] rate_limit ( eg, report only every 15m )
-- [ ] muted_until: timestamp, stored as unix timestamp.
+- [ ] Alert_name
+- [ ] Rate_limit ( eg, report only every 15m )
+- [ ] Mute_until: timestamp, stored as unix timestamp.
   This alert is ignored until [timestamp], and defaults to maxint or "forever"
   

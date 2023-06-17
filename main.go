@@ -40,10 +40,10 @@ type Bot struct {
 }
 
 type Alert struct {
-	name       string
-	rate_limit int   // stored in seconds
-	mute_until int64 // unix timestamp seems simplest for this.
-	last_seen  int64 // unix timestamp of last time alert fired.
+	Name       string
+	Rate_limit int   // stored in seconds
+	Mute_until int64 // unix timestamp seems simplest for this.
+	Last_seen  int64 // unix timestamp of last time alert fired.
 }
 
 ////////////////////////////////////////
@@ -144,27 +144,41 @@ func (b *Bot) PrivmsgCallback(event *irc.Event) {
 				),
 			)
 			// TODO: set the mute_until for respective alert.
-			val, ok := b.alerts[alert_name]
-			if ok {
-				val.mute_until = mute_until
-			} else {
-				b.alerts[alert_name] = Alert{
-					name:       alert_name,
-					mute_until: mute_until,
-				}
+			val := b.alerts[alert_name]
+			b.alerts[alert_name] = Alert{
+				Name:       alert_name,
+				Mute_until: mute_until,
+				Last_seen:  val.Last_seen,
+				Rate_limit: val.Rate_limit,
 			}
 		case "unmute":
 			alert_name := fields[2] // remove mute condition.
 			alert, ok := b.alerts[alert_name]
 			if ok {
-				alert.mute_until = 0
+				alert.Mute_until = 0
 			} // otherwise, wasn't muted. we don't know about it.
 		case "list": // alerts list
 			lst := make([]string, len(b.alerts))
 			for k, _ := range b.alerts { // map() ?
 				lst = append(lst, k)
 			}
-			b.conn.Privmsg(event.Arguments[0], strings.Join(lst, " "))
+			b.conn.Privmsg(event.Arguments[0], "Alerts:"+strings.Join(lst, " "))
+		case "info": // get information about an alert record.
+			alert_name := fields[2]
+			record, ok := b.alerts[alert_name]
+			var msg string
+			if ok {
+				msg = fmt.Sprintf("Alert `%s` : mute until %s : last seen %s : rate limit %d",
+					alert_name,
+					TimestampToString(record.Mute_until),
+					TimestampToString(record.Last_seen),
+					record.Rate_limit,
+				)
+			} else {
+				msg = fmt.Sprintf("Alert `%s` has no record.")
+			}
+			b.conn.Privmsg(event.Arguments[0], msg)
+
 		default:
 			// default case? reply w/ error message?
 		}
@@ -267,9 +281,9 @@ func main() {
 		return
 	}
 	// TODO: get necessary alert data from database here.
-	b.alerts["testAlert"] = Alert{
-		name: "testAlert",
-	}
+	// b.alerts["testAlert"] = Alert{
+	// 	Name: "testAlert",
+	// }
 
 	alertsChannel := make(chan InnerAlert)
 	// register IRC callbacks
@@ -284,15 +298,25 @@ func main() {
 			var now int64 = time.Now().Unix()
 
 			alertName := innerAlert.Labels["alertname"]
-			record := b.alerts[alertName]
+			record, ok := b.alerts[alertName]
+			log.Println(record)
 
 			// if the innerAlert is not muted, and is not within the rate limit, report.
-			if (record.mute_until >= now) || (record.last_seen+int64(record.rate_limit) >= now) {
-				record.last_seen = now
-				continue
+			log.Println("Alert recieved @", now, " muted until ", record.Mute_until-now)
+			report := true
+			if (record.Mute_until >= now) || (record.Last_seen+int64(record.Rate_limit) >= now) {
+				report = false
 			}
-			record.last_seen = now
-			b.conn.Privmsg(b.config.AlertsChannel, alertName+" is "+innerAlert.Status)
+
+			if ok { // initialize the record if necessary
+				record.Last_seen = now
+			} else {
+				b.alerts[alertName] = Alert{Name: alertName, Last_seen: now}
+			}
+
+			if report {
+				b.conn.Privmsg(b.config.AlertsChannel, alertName+" is "+innerAlert.Status)
+			}
 		}
 	}()
 
