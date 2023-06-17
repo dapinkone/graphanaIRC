@@ -18,10 +18,11 @@ import (
 )
 
 type Config struct {
-	Server   string `yaml:"server"`
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
-	Autojoin string `yaml:"autojoin"`
+	Server        string `yaml:"server"`
+	Username      string `yaml:"username"`
+	Password      string `yaml:"password"`
+	Autojoin      string `yaml:"autojoin"`
+	AlertsChannel string `yaml:"alertsChannel"`
 
 	DatabaseURL string `yaml:"DatabaseURL"`
 	DBusername  string `yaml:"DBusername"`
@@ -40,9 +41,9 @@ type Bot struct {
 
 type Alert struct {
 	name       string
-	rate_limit int // stored in seconds
-	mute_until int // unix timestamp seems simplest for this.
-	last_seen  int // unix timestamp of last time alert fired.
+	rate_limit int   // stored in seconds
+	mute_until int64 // unix timestamp seems simplest for this.
+	last_seen  int64 // unix timestamp of last time alert fired.
 }
 
 ////////////////////////////////////////
@@ -201,7 +202,9 @@ type InnerAlert struct {
 }
 
 func buildAlertHandler(alertsChannel chan<- InnerAlert) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) { // handleAlert()
+	// takes a channel, and builds a callback which knows about that channel,
+	// so the callback can send alert POST data recieved to the channel.
+	return func(w http.ResponseWriter, r *http.Request) {
 		// callback for http server to handle alerts recieved via post request,
 		// from grafana. Takes data, and sends necessary information into a channel
 		// for the IRC bot to report.
@@ -212,12 +215,11 @@ func buildAlertHandler(alertsChannel chan<- InnerAlert) func(w http.ResponseWrit
 			return
 		}
 
-		// TODO: send the alert data into a channel for the IRC bot to handle
+		// for each alert in the list given in the POST, if it's firing, send it to the monitor.
 		for _, innerAlert := range httpAlert.Alerts {
 			name := innerAlert.Labels["alertname"]
 			if innerAlert.Status == "firing" {
 				log.Println("Alert firing: ", name)
-				// TODO: build structure, and feed it to a channel for the IRC bot.
 				alertsChannel <- innerAlert
 			}
 		}
@@ -257,7 +259,6 @@ func main() {
 		return
 	}
 	// TODO: get necessary alert data from database here.
-	//alerts := make([]Alert, 0)
 	b.alerts["testAlert"] = Alert{
 		name: "testAlert",
 	}
@@ -268,12 +269,25 @@ func main() {
 		go b.PrivmsgCallback(event)
 	})
 
-	b.conn.AddCallback("*", func(event *irc.Event) { // check for/handle alerts channel works
-		go func() { // TODO: only need one of these to exist?
+	go func() { // set up a monitor to feed data from the channel to IRC.
+		// monitor will handle rate limiting, muting alerts, etc.
+		for {
 			innerAlert := <-alertsChannel
-			b.conn.Privmsg(b.config.Autojoin, innerAlert.Labels["alertname"]+" is status : "+innerAlert.Status)
-		}()
-	})
+			var now int64 = time.Now().Unix()
+
+			alertName := innerAlert.Labels["alertname"]
+			record := b.alerts[alertName]
+
+			// if the innerAlert is not muted, and is not within the rate limit, report.
+			if (record.mute_until >= now) || (record.last_seen+int64(record.rate_limit) >= now) {
+				record.last_seen = now
+				continue
+			}
+			record.last_seen = now
+			b.conn.Privmsg(b.config.AlertsChannel, alertName+" is "+innerAlert.Status)
+		}
+	}()
+
 	fmt.Printf("Connected to IRCServer: %s\n", config.Server)
 	fmt.Printf("Connected to IRC w/ Username: %s\n", config.Username)
 	b.conn.Join(b.config.Autojoin)
