@@ -6,7 +6,8 @@ Bot stuff
 - [X] connect to IRC (SASL preferred)
 - IRC commands:
   - [ ] set alert rate limit.
-  - [ ] mute alert [duration]
+  - [X] mute alert [duration]
+  - [X] unmute alert 
   - [ ] list alerts which are muted
   
   - [X] join / part channel

@@ -144,13 +144,21 @@ func (b *Bot) PrivmsgCallback(event *irc.Event) {
 				),
 			)
 			// TODO: set the mute_until for respective alert.
+			val, ok := b.alerts[alert_name]
+			if ok {
+				val.mute_until = mute_until
+			} else {
+				b.alerts[alert_name] = Alert{
+					name:       alert_name,
+					mute_until: mute_until,
+				}
+			}
 		case "unmute":
 			alert_name := fields[2] // remove mute condition.
-			alert := b.alerts[alert_name]
-			zero_alert := Alert{}
-			if alert != zero_alert {
+			alert, ok := b.alerts[alert_name]
+			if ok {
 				alert.mute_until = 0
-			}
+			} // otherwise, wasn't muted. we don't know about it.
 		case "list": // alerts list
 			lst := make([]string, len(b.alerts))
 			for k, _ := range b.alerts { // map() ?
