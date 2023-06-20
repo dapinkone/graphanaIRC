@@ -322,10 +322,6 @@ func main() {
 				report = false
 			}
 
-			// if ok { // initialize the record if necessary
-			// 	record.Last_seen = now
-			// } else {
-			//			}
 			last_reported := record.Last_reported
 			if report {
 				last_reported = now

@@ -1,5 +1,5 @@
-# graphanaIRC
-IRC bot that sends graphana alerts to IRC
+# grafanaIRC
+IRC bot that sends grafana alerts to IRC
 Planned Features:
 
 Bot stuff
@@ -22,7 +22,7 @@ Bot stuff
 - [X] reports firing alerts on channel
 
 Graphana stuff
-- [X] Host simple web endpoint to receive JSON post requests ( to receive an alert from graphana )
+- [X] Host simple web endpoint to receive JSON post requests ( to receive an alert from grafana )
 - [X] JSON parsing of alerts
 - [X] Rate Limiting: Determine if the alert has been reported within configurable time window. If not, report to IRC.
 - [X] Rate Limiting duration configurable per alert.
